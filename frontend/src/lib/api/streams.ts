@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { request } from "./client";
 
 export interface StreamResponse {
   streamId: string;
@@ -67,7 +67,7 @@ export const streamsApi = {
    * Get stream remaining amounts
    */
   getRemaining: async (token: string, streamId: string): Promise<StreamRemainingResponse> => {
-    return apiRequest<StreamRemainingResponse>(`/streams/${streamId}/remaining`, {
+    return request<StreamRemainingResponse>(`/streams/${streamId}/remaining`, {
       method: "GET",
       token,
     });
@@ -81,10 +81,10 @@ export const streamsApi = {
     streamId: string,
     data: ClawbackPreviewRequest
   ): Promise<ClawbackPreviewResponse> => {
-    return apiRequest<ClawbackPreviewResponse>(`/admin/streams/${streamId}/clawback/preview`, {
+    return request<ClawbackPreviewResponse>(`/admin/streams/${streamId}/clawback/preview`, {
       method: "POST",
       token,
-      body: data,
+      body: JSON.stringify(data),
     });
   },
 
@@ -96,10 +96,10 @@ export const streamsApi = {
     streamId: string,
     data: SuspendStreamRequest
   ): Promise<SuspendStreamResponse> => {
-    return apiRequest<SuspendStreamResponse>(`/admin/streams/${streamId}/suspend`, {
+    return request<SuspendStreamResponse>(`/admin/streams/${streamId}/suspend`, {
       method: "POST",
       token,
-      body: data,
+      body: JSON.stringify(data),
     });
   },
 
@@ -111,10 +111,10 @@ export const streamsApi = {
     streamId: string,
     data: ResumeStreamRequest
   ): Promise<ResumeStreamResponse> => {
-    return apiRequest<ResumeStreamResponse>(`/admin/streams/${streamId}/resume`, {
+    return request<ResumeStreamResponse>(`/admin/streams/${streamId}/resume`, {
       method: "POST",
       token,
-      body: data,
+      body: JSON.stringify(data),
     });
   },
 };

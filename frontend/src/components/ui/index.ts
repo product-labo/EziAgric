@@ -25,3 +25,4 @@ export { OfflineState } from "./OfflineState";
 export type { OfflineStateProps } from "./OfflineState";
 export { LoadingState } from "./LoadingState";
 export type { LoadingStateProps } from "./LoadingState";
+export { SessionWarning } from "./SessionWarning";

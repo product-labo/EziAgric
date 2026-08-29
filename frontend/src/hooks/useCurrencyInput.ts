@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   validateAmountFormat,
   validateAmountRange,
@@ -12,6 +12,7 @@ interface UseCurrencyInputOptions {
   asset: AssetInfo;
   min?: string; // in stroops
   max?: string; // in stroops
+  initialValue?: string; // in display format
   onValidChange?: (stroops: string) => void;
 }
 
@@ -31,9 +32,10 @@ export function useCurrencyInput({
   asset,
   min,
   max,
+  initialValue = "",
   onValidChange,
 }: UseCurrencyInputOptions): UseCurrencyInputResult {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(initialValue);
   const [error, setError] = useState<string | null>(null);
   const [stroops, setStroops] = useState<string | null>(null);
 
@@ -86,6 +88,13 @@ export function useCurrencyInput({
     setError(null);
     setStroops(null);
   }, []);
+
+  // Handle initial value or external updates
+  useEffect(() => {
+    if (initialValue && value !== initialValue) {
+      handleChange(initialValue);
+    }
+  }, [initialValue]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     value,

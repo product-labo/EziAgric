@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { useAdmin } from "@/hooks/useAdmin";
+import { useAdminSession } from "@/hooks/useAdminSession";
+import { useFormStatePreservation } from "@/hooks/useFormStatePreservation";
 import { useCurrencyInput } from "@/hooks/useCurrencyInput";
 import {
   api,
@@ -12,7 +14,7 @@ import {
   type ClawbackPreviewResponse,
   ApiError,
 } from "@/lib/api";
-import { Breadcrumb, LoadingState, ErrorState, CurrencyInput } from "@/components/ui";
+import { Breadcrumb, LoadingState, ErrorState, CurrencyInput, SessionWarning } from "@/components/ui";
 import {
   getAssetInfo,
   formatAmountWithAsset,
@@ -25,6 +27,9 @@ export default function AdminStreamManagementPage() {
   const streamId = params.id as string;
   const { token, isAuthenticated, isLoading: authLoading } = useAuth();
   const { canAccessAdmin, isAdminUIEnabled } = useAdmin();
+  
+  // Admin session monitoring
+  const adminSession = useAdminSession();
 
   const [streamData, setStreamData] = useState<StreamRemainingResponse | null>(null);
   const [clawbackPreview, setClawbackPreview] = useState<ClawbackPreviewResponse | null>(null);
@@ -35,6 +40,27 @@ export default function AdminStreamManagementPage() {
 
   const [suspendReason, setSuspendReason] = useState("");
   const [resumeNote, setResumeNote] = useState("");
+  const [clawbackAmount, setClawbackAmount] = useState("");
+
+  // Form state preservation
+  const formState = {
+    suspendReason,
+    resumeNote,
+    clawbackAmount,
+    streamId,
+  };
+
+  useFormStatePreservation(`admin-stream-${streamId}`, formState, {
+    enabled: true,
+    onRestore: (state) => {
+      if (state.streamId === streamId) {
+        setSuspendReason(state.suspendReason as string);
+        setResumeNote(state.resumeNote as string);
+        setClawbackAmount(state.clawbackAmount as string);
+        setActionStatus("Form state restored after re-authentication");
+      }
+    },
+  });
 
   // Get asset info from stream data
   const assetInfo = useMemo(() => {
@@ -47,11 +73,17 @@ export default function AdminStreamManagementPage() {
   const clawbackInput = useCurrencyInput({
     asset: { ...assetInfo, decimals },
     max: streamData?.unclaimed,
+    initialValue: clawbackAmount,
     onValidChange: (stroops) => {
       // Clear preview when amount changes
       setClawbackPreview(null);
     },
   });
+
+  // Sync clawbackAmount state with input value for preservation
+  useEffect(() => {
+    setClawbackAmount(clawbackInput.value);
+  }, [clawbackInput.value]);
 
   useEffect(() => {
     if (!token || !streamId) return;
@@ -215,6 +247,12 @@ export default function AdminStreamManagementPage() {
   return (
     <section className="min-h-full bg-bg-primary px-6 py-8 lg:px-10">
       <div className="mx-auto max-w-7xl space-y-6">
+        {/* Session warning */}
+        <SessionWarning
+          warning={adminSession.sessionWarning}
+          onRefresh={adminSession.refreshSession}
+        />
+
         {/* Breadcrumb */}
         <Breadcrumb items={breadcrumbItems} />
 
@@ -304,10 +342,19 @@ export default function AdminStreamManagementPage() {
                 className={`rounded-lg border px-4 py-3 text-sm ${
                   actionStatus.startsWith("Error")
                     ? "border-status-danger/20 bg-status-danger/10 text-status-danger"
+                    : actionStatus.includes("restored")
+                    ? "border-gold/20 bg-gold/10 text-gold"
                     : "border-status-success/20 bg-status-success/10 text-status-success"
                 }`}
               >
                 {actionStatus}
+              </div>
+            )}
+
+            {/* Session status indicator */}
+            {adminSession.isExpiringSoon && !adminSession.sessionWarning && (
+              <div className="rounded-lg border border-status-warning/20 bg-status-warning/10 px-4 py-3 text-sm text-status-warning">
+                Your session will expire soon. Actions will trigger re-authentication if needed.
               </div>
             )}
 

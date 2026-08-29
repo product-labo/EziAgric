@@ -368,7 +368,111 @@ const breadcrumbs = generateBreadcrumbs("/streams/stream-123");
 // ]
 ```
 
-## Admin Access Patterns
+## Admin Session Management
+
+### Session Requirements
+
+Admin operations require active authentication sessions with valid tokens. The system automatically manages token refresh and session monitoring to prevent interruptions during critical operations.
+
+**Session Duration:**
+- Tokens expire based on backend configuration (typically 1 hour)
+- System proactively refreshes tokens 5 minutes before expiry
+- Warning shown when session expires within 10 minutes
+
+**Automatic Token Refresh:**
+- Happens automatically before every API call
+- Triggered proactively 5 minutes before token expires
+- Retries once on 401 (Unauthorized) responses
+- Requires user to sign authentication challenge with wallet
+
+**Session Monitoring:**
+
+```tsx
+import { useAdminSession } from "@/hooks/useAdminSession";
+import { SessionWarning } from "@/components/ui";
+
+function AdminPage() {
+  const {
+    isSessionValid,      // true if authenticated and admin
+    isExpiringSoon,      // true if <5 minutes remaining
+    canPerformActions,   // true if session valid and not expiring
+    sessionWarning,      // warning message or null
+    timeUntilExpiry,     // milliseconds until expiry
+    refreshSession,      // manual refresh function
+  } = useAdminSession();
+
+  return (
+    <>
+      {/* Show session warning notification */}
+      <SessionWarning
+        warning={sessionWarning}
+        onRefresh={refreshSession}
+      />
+      
+      {/* Disable actions if session expiring */}
+      <button disabled={!canPerformActions}>
+        Perform Admin Action
+      </button>
+    </>
+  );
+}
+```
+
+**Form State Preservation:**
+
+Admin forms automatically preserve their state during re-authentication:
+
+```tsx
+import { useFormStatePreservation } from "@/hooks/useFormStatePreservation";
+
+function AdminForm() {
+  const [field1, setField1] = useState("");
+  const [field2, setField2] = useState("");
+  
+  const formState = { field1, field2 };
+
+  useFormStatePreservation("unique-form-id", formState, {
+    enabled: true,
+    onRestore: (state) => {
+      setField1(state.field1 as string);
+      setField2(state.field2 as string);
+      // Show notification that form was restored
+    },
+  });
+
+  return <form>...</form>;
+}
+```
+
+**Session Workflow:**
+
+1. **Normal Operation:**
+   - User performs admin actions normally
+   - Token refreshes automatically every ~55 minutes
+   - No user interruption
+
+2. **Session Expiring:**
+   - Warning shown 10 minutes before expiry
+   - "Refresh Now" button available
+   - Actions still work (trigger auto-refresh)
+
+3. **Session Expired:**
+   - User prompted to re-authenticate
+   - Form state preserved automatically
+   - State restored after successful re-auth
+
+4. **Authentication Failure:**
+   - Clear error message shown
+   - Form state preserved
+   - User can retry authentication
+
+**Best Practices:**
+
+- Don't disable actions based on `isExpiringSoon` alone
+- Let the system handle token refresh automatically
+- Show session warnings to keep users informed
+- Use form state preservation for complex forms
+- Test admin workflows with expired tokens
 
 ### Feature Flags
 

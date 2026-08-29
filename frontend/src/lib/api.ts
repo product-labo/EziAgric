@@ -1,6 +1,6 @@
 import { adminAuditApi } from "./api/adminAudit";
 import { authApi } from "./api/auth";
-import { ApiError } from "./api/client";
+import { ApiError, setTokenRefreshCallback } from "./api/client";
 import { disputesApi } from "./api/disputes";
 import { getApiBaseUrl, getStellarNetworkPassphrase, getStellarRpcUrl } from "./api/env";
 import { searchApi } from "./api/search";
@@ -56,4 +56,4 @@ export const apiConfig = {
   getStellarNetworkPassphrase,
 };
 
-export { ApiError };
+export { ApiError, setTokenRefreshCallback };

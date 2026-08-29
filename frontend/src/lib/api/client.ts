@@ -28,6 +28,13 @@ export class ApiError extends Error {
 
 const TOKEN_STORAGE_KEY = "amana_jwt";
 
+// Token refresh callback - will be set by the auth provider
+let tokenRefreshCallback: (() => Promise<string | null>) | null = null;
+
+export function setTokenRefreshCallback(callback: (() => Promise<string | null>) | null): void {
+  tokenRefreshCallback = callback;
+}
+
 function getStoredToken(): string | null {
   if (typeof window === "undefined") return null;
   return sessionStorage.getItem(TOKEN_STORAGE_KEY);
@@ -90,7 +97,20 @@ export async function request<T>(
 ): Promise<T> {
   const { token, skipAuth, headers, ...fetchOptions } = options;
 
-  const authToken = token ?? (!skipAuth ? getStoredToken() : null);
+  let authToken = token ?? (!skipAuth ? getStoredToken() : null);
+
+  // If we have a token refresh callback and a token, try to ensure it's valid
+  if (authToken && tokenRefreshCallback && !skipAuth) {
+    try {
+      const refreshedToken = await tokenRefreshCallback();
+      if (refreshedToken) {
+        authToken = refreshedToken;
+      }
+    } catch (error) {
+      console.error('Token refresh failed in request interceptor:', error);
+      // Continue with existing token, let the request fail naturally if needed
+    }
+  }
 
   try {
     const response = await fetch(`${getApiBaseUrl()}${endpoint}`, {
@@ -150,6 +170,25 @@ export async function requestWithResult<T>(
     return { success: true, data };
   } catch (error) {
     if (error instanceof ApiError) {
+      // On 401, try to refresh token once before giving up
+      if (error.status === 401 && tokenRefreshCallback && !options.skipAuth) {
+        try {
+          const refreshedToken = await tokenRefreshCallback();
+          if (refreshedToken) {
+            // Retry the request with the refreshed token
+            return requestWithResult<T>(endpoint, schema, {
+              ...options,
+              token: refreshedToken,
+              // Add a flag to prevent infinite retry loops
+              skipAuth: true,
+            });
+          }
+        } catch (refreshError) {
+          console.error('Token refresh failed on 401:', refreshError);
+        }
+      }
+
+      // If we still have 401 after refresh attempt, clear token and reload
       if (error.status === 401) {
         const storedToken = getStoredToken();
         if (storedToken) {

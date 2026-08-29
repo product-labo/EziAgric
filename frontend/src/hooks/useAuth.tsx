@@ -17,6 +17,7 @@ import {
   signMessage,
 } from "@stellar/freighter-api";
 import { api, ApiError } from "@/lib/api";
+import { setTokenRefreshCallback } from "@/lib/api/client";
 import { trackAuthEvent } from "@/lib/analytics";
 
 const TOKEN_STORAGE_KEY = "amana_jwt";
@@ -37,6 +38,8 @@ interface AuthContextType extends AuthState {
   authenticate: () => Promise<void>;
   logout: () => Promise<void>;
   refreshAuth: () => Promise<void>;
+  isTokenExpiringSoon: () => boolean;
+  ensureValidToken: () => Promise<string | null>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -66,6 +69,17 @@ function isTokenExpired(token: string): boolean {
     const exp = payload.exp;
     if (!exp) return true;
     return Date.now() >= exp * 1000;
+  } catch {
+    return true;
+  }
+}
+
+function isTokenNearExpiry(token: string, bufferMs: number = 5 * 60 * 1000): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    const exp = payload.exp;
+    if (!exp) return true;
+    return Date.now() >= (exp * 1000 - bufferMs);
   } catch {
     return true;
   }
@@ -254,9 +268,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     trackAuthEvent("logout", "success");
   }, [state.token]);
 
+  const isTokenExpiringSoon = useCallback((): boolean => {
+    if (!state.token) return true;
+    return isTokenNearExpiry(state.token);
+  }, [state.token]);
+
+  const ensureValidToken = useCallback(async (): Promise<string | null> => {
+    // If no token, can't refresh
+    if (!state.token) {
+      return null;
+    }
+
+    // If token is already expired, need to re-authenticate
+    if (isTokenExpired(state.token)) {
+      setState((prev) => ({
+        ...prev,
+        token: null,
+        isAuthenticated: false,
+        error: "Session expired. Please authenticate again.",
+      }));
+      clearStoredToken();
+      return null;
+    }
+
+    // If token is expiring soon (within 5 minutes), trigger re-authentication
+    if (isTokenNearExpiry(state.token)) {
+      try {
+        // Trigger re-authentication flow
+        await authenticate();
+        // Return the refreshed token
+        const newToken = getStoredToken();
+        return newToken;
+      } catch (error) {
+        console.error('Token refresh failed:', error);
+        return null;
+      }
+    }
+
+    // Token is still valid
+    return state.token;
+  }, [state.token, authenticate]);
+
   useEffect(() => {
     void refreshAuth();
   }, [refreshAuth]);
+
+  // Register token refresh callback with API client
+  useEffect(() => {
+    setTokenRefreshCallback(ensureValidToken);
+    return () => {
+      setTokenRefreshCallback(null);
+    };
+  }, [ensureValidToken]);
 
   useEffect(() => {
     if (!state.token) return;
@@ -276,19 +339,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const refreshBuffer = 60 * 1000;
-    const timeout = setTimeout(() => {
-      clearStoredToken();
-      setState((prev) => ({
-        ...prev,
-        token: null,
-        isAuthenticated: false,
-        error: "Session expired. Please authenticate again.",
-      }));
-    }, expiresIn - refreshBuffer);
+    // Set up proactive refresh - refresh 5 minutes before expiry
+    const refreshBuffer = 5 * 60 * 1000; // 5 minutes
+    const refreshTime = expiresIn - refreshBuffer;
 
-    return () => clearTimeout(timeout);
-  }, [state.token]);
+    // Only set up proactive refresh if we have time
+    if (refreshTime > 0) {
+      const refreshTimeout = setTimeout(async () => {
+        console.log('Proactively refreshing token before expiry');
+        try {
+          await authenticate();
+        } catch (error) {
+          console.error('Proactive token refresh failed:', error);
+          setState((prev) => ({
+            ...prev,
+            error: "Session is expiring soon. Please re-authenticate.",
+          }));
+        }
+      }, refreshTime);
+
+      // Set up expiry timeout as fallback
+      const expiryTimeout = setTimeout(() => {
+        clearStoredToken();
+        setState((prev) => ({
+          ...prev,
+          token: null,
+          isAuthenticated: false,
+          error: "Session expired. Please authenticate again.",
+        }));
+      }, expiresIn);
+
+      return () => {
+        clearTimeout(refreshTimeout);
+        clearTimeout(expiryTimeout);
+      };
+    } else {
+      // Token expires very soon, just set up expiry timeout
+      const timeout = setTimeout(() => {
+        clearStoredToken();
+        setState((prev) => ({
+          ...prev,
+          token: null,
+          isAuthenticated: false,
+          error: "Session expired. Please authenticate again.",
+        }));
+      }, expiresIn);
+
+      return () => clearTimeout(timeout);
+    }
+  }, [state.token, authenticate]);
 
   const value = useMemo<AuthContextType>(
     () => ({
@@ -297,8 +396,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authenticate,
       logout,
       refreshAuth,
+      isTokenExpiringSoon,
+      ensureValidToken,
     }),
-    [state, connectWallet, authenticate, logout, refreshAuth]
+    [state, connectWallet, authenticate, logout, refreshAuth, isTokenExpiringSoon, ensureValidToken]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
